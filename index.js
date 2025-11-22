@@ -46,13 +46,15 @@ bot.start(async (ctx) => {
     if (!userSnap.exists) {
         // === নতুন ইউজার ===
         
-        // ১. নতুন ইউজার ডাটাবেসে তৈরি করা
+        // ১. নতুন ইউজার ডাটাবেসে তৈরি করা (Database Save)
         await userRef.set({
             userId: userId,
             name: firstName,
             username: username,
-            balance: 0,
-            diamonds: 0,
+
+            balance: 0,        // ✅ TON ব্যালেন্স ০ থেকে শুরু হচ্ছে
+            diamonds: 0,       // ডায়মন্ডও ০
+            
             completedTasks: [],
             unlockedLevels: ['Basic'],
             joinedAt: admin.firestore.FieldValue.serverTimestamp(),
