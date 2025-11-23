@@ -106,24 +106,34 @@ app.get('/', (req, res) => {
 
 // index.js : নতুন মেসেজ পাঠানোর API
 app.post('/api/notify-users', async (req, res) => {
+    // ফ্রন্টএন্ড থেকে এই ডাটাগুলো আসবে
     const { newUserId, newUserName, referrerId } = req.body;
 
+    console.log(`Notification Request: New User ${newUserId}, Ref: ${referrerId}`);
+
     try {
-        // ১. নতুন ইউজারকে ওয়েলকাম মেসেজ পাঠানো
-        // (ইউজার যেহেতু 'Allow' চেকবক্সে টিক দিয়ে Start দিয়েছে, তাই মেসেজ যাবে)
-        await bot.telegram.sendMessage(newUserId, `👋 **Welcome, ${newUserName}!**\n\nThanks for joining Pocket Money App.\nStart playing quizzes and earn cash now! 🚀`, { parse_mode: 'Markdown' });
+        // ১. নতুন ইউজারকে (User B) ওয়েলকাম মেসেজ পাঠানো
+        // (যেহেতু মিনি অ্যাপ ওপেন করার সময় ইউজার 'Allow messages' এ টিক দিয়েছে, তাই মেসেজ যাবে)
+        try {
+            await bot.telegram.sendMessage(newUserId, `👋 **Welcome, ${newUserName}!**\n\nThanks for joining Pocket Money App.\nStart playing quizzes and earn cash now! 🚀`, { parse_mode: 'Markdown' });
+        } catch (msgErr) {
+            console.log("Could not send welcome msg (User might have blocked bot):", msgErr.message);
+        }
 
         // ২. রেফারারকে (User A) সুখবর পাঠানো (যদি থাকে)
         if (referrerId && referrerId !== newUserId) {
-            await bot.telegram.sendMessage(referrerId, `🎉 **Congratulations!**\n\nYour friend **${newUserName}** joined using your link.\n💎 **You received +2 Diamonds!**`, { parse_mode: 'Markdown' });
+            try {
+                await bot.telegram.sendMessage(referrerId, `🎉 **Congratulations!**\n\nYour friend **${newUserName}** joined using your link.\n💎 **You received +2 Diamonds!**`, { parse_mode: 'Markdown' });
+            } catch (refErr) {
+                console.log("Could not send referrer msg:", refErr.message);
+            }
         }
 
         res.json({ success: true });
 
     } catch (error) {
-        console.error("Message Sending Error:", error);
-        // ইউজার যদি বট ব্লক করে রাখে বা চেকবক্স আনচেক করে, তবে এরর আসতে পারে
-        res.json({ success: false, error: error.message });
+        console.error("General Notification Error:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 // ❌ OLD APIs REMOVED (claim-reward & withdraw) - Frontend handles them now.
