@@ -4,14 +4,14 @@ const cors = require('cors');
 const admin = require('firebase-admin');
 const { Telegraf, Markup } = require('telegraf');
 
+const app = express();
+
 // --- 1. FIREBASE SETUP ---
-// Render এ এনভায়রনমেন্ট ভেরিয়েবল থেকে সার্ভিস একাউন্ট লোড করা
 let serviceAccount;
 try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 } catch (e) {
     console.error("Error parsing FIREBASE_SERVICE_ACCOUNT:", e);
-    // It's better to exit if the service account is critical and fails to parse
     process.exit(1); 
 }
 
@@ -33,27 +33,25 @@ bot.start(async (ctx) => {
     const firstName = user.first_name;
     const username = user.username || "No Username";
     
-    // Payload থেকে রেফারার আইডি বের করা (যেমন: /start 12345)
-    // 'startPayload' টেলেগ্রাফের একটি ফিচার যা প্যারামিটার ধরে
+    // রেফারাল কোড হ্যান্ডলিং
     const referrerId = ctx.startPayload; 
 
     console.log(`User Started: ${firstName} (${userId}), Referrer: ${referrerId}`);
 
-    // --- A. USER TRACKING & DATABASE UPDATE ---
     const userRef = db.collection('users').doc(userId);
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-        // === নতুন ইউজার ===
-        
-        // ১. নতুন ইউজার ডাটাবেসে তৈরি করা (Database Save)
+        // === ১. নতুন ইউজার তৈরি (Database Save) ===
         await userRef.set({
             userId: userId,
             name: firstName,
             username: username,
 
-            balance: 0,        // ✅ TON ব্যালেন্স ০ থেকে শুরু হচ্ছে
-            diamonds: 0,       // ডায়মন্ডও ০
+            // ✅ UPDATE: নতুন স্ট্রাকচার অনুযায়ী ব্যালেন্স সেট করা হলো
+            balanceBDT: 0,       // কুইজের টাকার জন্য
+            balanceTON: 0,       // টাস্কের TON এর জন্য
+            diamonds: 0,
             
             completedTasks: [],
             unlockedLevels: ['Basic'],
@@ -61,14 +59,8 @@ bot.start(async (ctx) => {
             referredBy: referrerId || null
         });
 
-        // ২. রেফারাল বোনাস প্রসেসিং (যদি রেফারার থাকে)
-        if (referrerId && referrerId !== userId) {
-            await handleReferralReward(referrerId, userId, firstName);
-        }
-
     } else {
-        // === পুরাতন ইউজার ===
-        // তথ্য আপডেট করা (যদি নাম চেঞ্জ করে থাকে)
+        // === পুরাতন ইউজার আপডেট ===
         await userRef.update({
             name: firstName,
             username: username,
@@ -76,27 +68,6 @@ bot.start(async (ctx) => {
         });
     }
 
-    // --- B. WELCOME MESSAGE WITH BUTTON ---
-    const welcomeMsg = `
-👋 **Hello, ${firstName}!**
-
-Welcome to **Pocket Money Quiz**. 
-Play quizzes, complete tasks, and earn real money (TON/BDT)! 💰
-
-💎 **Invite & Earn:** Get 2 Diamonds per friend.
-🚀 **Withdraw:** Instant payment to TON Wallet or Bkash/Nagad.
-
-👇 **Click below to start playing:**
-    `;
-
-    // ইনলাইন বাটন (মিনি অ্যাপ ওপেন করার জন্য)
-    ctx.reply(welcomeMsg, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-            [Markup.button.webApp("🚀 Play & Earn Now", APP_URL)],
-            [Markup.button.url("📢 Join Community", "https://t.me/Pocket_Money_Community")]
-        ])
-    });
 });
 
 // --- 4. REFERRAL HANDLING FUNCTION ---
@@ -113,105 +84,49 @@ async function handleReferralReward(referrerId, newUserId, newUserName) {
                 referrals: admin.firestore.FieldValue.arrayUnion(newUserId)
             });
 
-            // রেফারারকে টেলিগ্রামে নোটিফিকেশন পাঠানো
+            // রেফারারকে মেসেজ পাঠানো
             await bot.telegram.sendMessage(referrerId, `🎉 **New Referral!**\n\nYour friend **${newUserName}** just joined.\nYou earned **+2 Diamonds** 💎!`, { parse_mode: 'Markdown' });
-            
-            console.log(`Referral Reward sent to ${referrerId}`);
         }
     } catch (err) {
-        console.error(`Error handling referral for ${referrerId}:`, err.message);
+        console.error(`Referral Error:`, err.message);
     }
 }
 
 // Bot Launch
 bot.launch();
 
-// --- 5. EXPRESS SERVER ---
-const app = express();
+// --- 5. EXPRESS SERVER (Just to keep Render happy) ---
 app.use(cors());
 app.use(express.json());
 
+// শুধু হেলথ চেক রাউট রাখা হলো
 app.get('/', (req, res) => {
-    res.send('Pocket Money Backend is Running... 🚀');
+    res.send('Pocket Money Bot is Running... 🤖');
 });
 
-// --- API ROUTES ---
-
-// ১. কুইজ রিওয়ার্ড ক্লেইম করা (SECURE)
-app.post('/api/claim-reward', async (req, res) => {
-    const { userId, rewardAmount } = req.body;
-
-    if (!userId || !rewardAmount) {
-        return res.status(400).send({ error: "Invalid Data" });
-    }
+// index.js : নতুন মেসেজ পাঠানোর API
+app.post('/api/notify-users', async (req, res) => {
+    const { newUserId, newUserName, referrerId } = req.body;
 
     try {
-        const userRef = db.collection('users').doc(userId);
-        
-        // ট্রানজেকশন ব্যবহার করে ব্যালেন্স আপডেট (নিরাপদ)
-        await db.runTransaction(async (t) => {
-            const doc = await t.get(userRef);
-            if (!doc.exists) {
-                throw new Error("User does not exist!");
-            }
-            const newBalance = (doc.data().balance || 0) + Number(rewardAmount);
-            t.update(userRef, { balance: newBalance });
-        });
+        // ১. নতুন ইউজারকে ওয়েলকাম মেসেজ পাঠানো
+        // (ইউজার যেহেতু 'Allow' চেকবক্সে টিক দিয়ে Start দিয়েছে, তাই মেসেজ যাবে)
+        await bot.telegram.sendMessage(newUserId, `👋 **Welcome, ${newUserName}!**\n\nThanks for joining Pocket Money App.\nStart playing quizzes and earn cash now! 🚀`, { parse_mode: 'Markdown' });
 
-        res.send({ success: true, message: "Reward Added Securely!" });
+        // ২. রেফারারকে (User A) সুখবর পাঠানো (যদি থাকে)
+        if (referrerId && referrerId !== newUserId) {
+            await bot.telegram.sendMessage(referrerId, `🎉 **Congratulations!**\n\nYour friend **${newUserName}** joined using your link.\n💎 **You received +2 Diamonds!**`, { parse_mode: 'Markdown' });
+        }
+
+        res.json({ success: true });
 
     } catch (error) {
-        console.error("Claim Reward Error:", error);
-        res.status(500).send({ error: error.message || "An internal error occurred." });
+        console.error("Message Sending Error:", error);
+        // ইউজার যদি বট ব্লক করে রাখে বা চেকবক্স আনচেক করে, তবে এরর আসতে পারে
+        res.json({ success: false, error: error.message });
     }
 });
-
-// ২. উইথড্র রিকোয়েস্ট (SECURE)
-app.post('/api/withdraw', async (req, res) => {
-    const { userId, amount, method, wallet } = req.body;
-
-    if (!userId || !amount || !method || !wallet) {
-        return res.status(400).send({ error: "Invalid Data: Missing required fields." });
-    }
-
-    try {
-        const userRef = db.collection('users').doc(userId);
-        
-        await db.runTransaction(async (t) => {
-            const doc = await t.get(userRef);
-            if (!doc.exists) {
-                throw new Error("User does not exist!");
-            }
-            const currentBalance = doc.data().balance || 0;
-
-            if (currentBalance < amount) {
-                throw new Error("Insufficient Balance!");
-            }
-
-            const newBalance = currentBalance - amount;
-            
-            // ব্যালেন্স কমানো
-            t.update(userRef, { balance: newBalance });
-
-            // উইথড্র রিকোয়েস্ট জমা দেওয়া
-            const withdrawRef = db.collection('withdrawals').doc();
-            t.set(withdrawRef, {
-                userId,
-                amount,
-                method,
-                wallet,
-                status: 'pending',
-                date: admin.firestore.FieldValue.serverTimestamp()
-            });
-        });
-
-        res.send({ success: true, message: "Withdrawal Request Sent!" });
-
-    } catch (error) {
-        console.error("Withdraw Error:", error);
-        res.status(400).send({ error: error.message || "An internal error occurred." });
-    }
-});
+// ❌ OLD APIs REMOVED (claim-reward & withdraw) - Frontend handles them now.
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
