@@ -96,9 +96,10 @@ app.get('/', (req, res) => {
 
 // ✅ API: NOTIFY USERS (Frontend থেকে কল হবে)
 app.post('/api/notify-users', async (req, res) => {
-    const { newUserId, newUserName, referrerId } = req.body;
+    // ফ্রন্টএন্ড থেকে photoUrl পাঠাতে হবে, সেটা রিসিভ করছি
+    const { newUserId, newUserName, referrerId, newUserPhoto } = req.body;
 
-    console.log(`Notification: New User ${newUserId}, Ref: ${referrerId}`);
+    console.log(`Notification: ${newUserName} joined under ${referrerId}`);
 
     try {
         // ১. নতুন ইউজারকে ওয়েলকাম মেসেজ (যদি সে অ্যাপ থেকে সরাসরি আসে)
@@ -121,13 +122,31 @@ app.post('/api/notify-users', async (req, res) => {
         // ২. রেফারারকে সুখবর পাঠানো (আপনার নতুন রিকোয়ারমেন্ট)
         if (referrerId && referrerId !== newUserId) {
             try {
+                const referrerRef = db.collection('users').doc(referrerId);
+
+                // আমরা শুধু ID না রেখে পুরো অবজেক্ট রাখব
+                const referralData = {
+                    id: newUserId,
+                    name: newUserName,
+                    // ছবি না থাকলে ডিফল্ট ছবি
+                    photo: newUserPhoto || "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                    joinedAt: new Date().toISOString()
+                };
+
+                await referrerRef.update({
+                    diamonds: admin.firestore.FieldValue.increment(2),
+                    // arrayUnion দিয়ে পুরো অবজেক্ট পুশ করছি
+                    referrals: admin.firestore.FieldValue.arrayUnion(referralData)
+                });
+
+                // টেলিগ্রাম মেসেজ (আগের মতোই)
                 await bot.telegram.sendPhoto(referrerId, IMAGES.REFERRAL, {
                     
                     caption: `🥳 **Congratulations!**\n\nYour friend **${newUserName}** joined using your link.\n💎 **You received +2 Diamonds!**`,
                     parse_mode: 'Markdown',
                     reply_markup: {
                         inline_keyboard: [
-                            [{ text: "💎 Claim Diamonds", web_app: { url: APP_URL } }] // ক্লেইম বাটন
+                            [{ text: "💎 Claim Diamonds", web_app: { url: APP_URL } }]
                         ]
                     }
                 });
@@ -139,7 +158,6 @@ app.post('/api/notify-users', async (req, res) => {
         res.json({ success: true });
 
     } catch (error) {
-        console.error("General Notification Error:", error);
         res.status(500).json({ error: error.message });
     }
 });
