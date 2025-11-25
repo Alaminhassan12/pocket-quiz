@@ -24,106 +24,113 @@ const db = admin.firestore();
 
 // --- 2. TELEGRAM BOT SETUP ---
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const APP_URL = "https://quiz-pocket.netlify.app"; // আপনার ফ্রন্টএন্ড লিংক
+const APP_URL = "https://quiz-pocket.netlify.app"; // আপনার মিনি অ্যাপ লিংক
+
+// --- কনফিগারেশন (ছবি এবং লিংক) ---
+const IMAGES = {
+    WELCOME: 'https://i.postimg.cc/pVzSxXFC/start-message.jpg', // ওয়েলকাম ইমেজ
+    REFERRAL: 'https://i.postimg.cc/y8QQnDMx/refer-message.png' // রেফার ইমেজ
+};
+
+const LINKS = {
+    YOUTUBE: 'https://youtube.com/@pocket_money_app?si=IOFoVmM4fKcEol6z',
+    COMMUNITY: 'https://t.me/Pocket_Money_Community'
+};
 
 // --- 3. MAIN BOT LOGIC (/start command) ---
+// ✅ এই অংশটি কাজ করবে যখন কেউ ম্যানুয়ালি /start দিবে
 bot.start(async (ctx) => {
     const user = ctx.from;
     const userId = user.id.toString();
     const firstName = user.first_name;
-    const username = user.username || "No Username";
-    
-    // রেফারাল কোড হ্যান্ডলিং
-    const referrerId = ctx.startPayload; 
+    const referrerId = ctx.startPayload; // রেফারাল প্যারামিটার
 
-    console.log(`User Started: ${firstName} (${userId}), Referrer: ${referrerId}`);
+    console.log(`User Started: ${firstName} (${userId})`);
 
+    // --- DATABASE LOGIC (আগের লজিক অপরিবর্তিত) ---
     const userRef = db.collection('users').doc(userId);
     const userSnap = await userRef.get();
 
-    if (!userSnap.exists) {
-        // === ১. নতুন ইউজার তৈরি (Database Save) ===
+    if (!userSnap.exists) { // নতুন ইউজার তৈরি
         await userRef.set({
             userId: userId,
             name: firstName,
-            username: username,
-
-            // ✅ UPDATE: নতুন স্ট্রাকচার অনুযায়ী ব্যালেন্স সেট করা হলো
-            balanceBDT: 0,       // কুইজের টাকার জন্য
-            balanceTON: 0,       // টাস্কের TON এর জন্য
+            username: user.username || "No Username",
+            balanceBDT: 0,
+            balanceTON: 0,
             diamonds: 0,
-            
             completedTasks: [],
             unlockedLevels: ['Basic'],
             joinedAt: admin.firestore.FieldValue.serverTimestamp(),
             referredBy: referrerId || null
         });
-
-    } else {
-        // === পুরাতন ইউজার আপডেট ===
-        await userRef.update({
-            name: firstName,
-            username: username,
-            lastActive: admin.firestore.FieldValue.serverTimestamp()
-        });
     }
 
-});
-
-// --- 4. REFERRAL HANDLING FUNCTION ---
-async function handleReferralReward(referrerId, newUserId, newUserName) {
-    const referrerRef = db.collection('users').doc(referrerId);
-    
+    // --- MESSAGE LOGIC (আপনার নতুন রিকোয়ারমেন্ট অনুযায়ী) ---
+    // ওয়েলকাম ইমেজ + ৩টি বাটন পাঠানো হবে
     try {
-        const referrerSnap = await referrerRef.get();
-
-        if (referrerSnap.exists) {
-            // রেফারারকে ২ ডায়মন্ড দেওয়া
-            await referrerRef.update({
-                diamonds: admin.firestore.FieldValue.increment(2),
-                referrals: admin.firestore.FieldValue.arrayUnion(newUserId)
-            });
-
-            // রেফারারকে মেসেজ পাঠানো
-            await bot.telegram.sendMessage(referrerId, `🎉 **New Referral!**\n\nYour friend **${newUserName}** just joined.\nYou earned **+2 Diamonds** 💎!`, { parse_mode: 'Markdown' });
-        }
-    } catch (err) {
-        console.error(`Referral Error:`, err.message);
+        await ctx.replyWithPhoto(IMAGES.WELCOME, {
+            caption: `👋 **Welcome, ${firstName}!**\n\nStart playing quizzes, complete tasks, and refer friends to earn real rewards instantly. Fun, easy, and rewarding! 🚀`,
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([
+                [Markup.button.webApp("🚀 Open Pocket Money", APP_URL)], // মিনি অ্যাপ বাটন
+                [Markup.button.url("📺 How to work", LINKS.YOUTUBE)],   // ইউটিউব বাটন
+                [Markup.button.url("📢 Join Community", LINKS.COMMUNITY)] // টেলিগ্রাম বাটন
+            ])
+        });
+    } catch (e) {
+        console.error("Error sending start message:", e);
     }
-}
+});
 
 // Bot Launch
 bot.launch();
 
-// --- 5. EXPRESS SERVER (Just to keep Render happy) ---
+// --- 4. EXPRESS SERVER & API ---
 app.use(cors());
 app.use(express.json());
 
-// শুধু হেলথ চেক রাউট রাখা হলো
 app.get('/', (req, res) => {
     res.send('Pocket Money Bot is Running... 🤖');
 });
 
-// index.js : নতুন মেসেজ পাঠানোর API
+// ✅ API: NOTIFY USERS (Frontend থেকে কল হবে)
 app.post('/api/notify-users', async (req, res) => {
-    // ফ্রন্টএন্ড থেকে এই ডাটাগুলো আসবে
     const { newUserId, newUserName, referrerId } = req.body;
 
-    console.log(`Notification Request: New User ${newUserId}, Ref: ${referrerId}`);
+    console.log(`Notification: New User ${newUserId}, Ref: ${referrerId}`);
 
     try {
-        // ১. নতুন ইউজারকে (User B) ওয়েলকাম মেসেজ পাঠানো
-        // (যেহেতু মিনি অ্যাপ ওপেন করার সময় ইউজার 'Allow messages' এ টিক দিয়েছে, তাই মেসেজ যাবে)
+        // ১. নতুন ইউজারকে ওয়েলকাম মেসেজ (যদি সে অ্যাপ থেকে সরাসরি আসে)
         try {
-            await bot.telegram.sendMessage(newUserId, `👋 **Welcome, ${newUserName}!**\n\nThanks for joining Pocket Money App.\nStart playing quizzes and earn cash now! 🚀`, { parse_mode: 'Markdown' });
+            await bot.telegram.sendPhoto(newUserId, IMAGES.WELCOME, {
+                caption: `👋 **Welcome, ${newUserName}!**\n\nStart playing quizzes, complete tasks, and refer friends to earn real rewards instantly. Fun, easy, and rewarding! 🚀`,
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "🚀 Open Pocket Money", web_app: { url: APP_URL } }],
+                        [{ text: "📺 How to work", url: LINKS.YOUTUBE }],
+                        [{ text: "📢 Join Community", url: LINKS.COMMUNITY }]
+                    ]
+                }
+            });
         } catch (msgErr) {
-            console.log("Could not send welcome msg (User might have blocked bot):", msgErr.message);
+            console.log("Could not send welcome msg (User might block bot):", msgErr.message);
         }
 
-        // ২. রেফারারকে (User A) সুখবর পাঠানো (যদি থাকে)
+        // ২. রেফারারকে সুখবর পাঠানো (আপনার নতুন রিকোয়ারমেন্ট)
         if (referrerId && referrerId !== newUserId) {
             try {
-                await bot.telegram.sendMessage(referrerId, `🎉 **Congratulations!**\n\nYour friend **${newUserName}** joined using your link.\n💎 **You received +2 Diamonds!**`, { parse_mode: 'Markdown' });
+                await bot.telegram.sendPhoto(referrerId, IMAGES.REFERRAL, {
+                    
+                    caption: `🥳 **Congratulations!**\n\nYour friend **${newUserName}** joined using your link.\n💎 **You received +2 Diamonds!**`,
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: "💎 Claim Diamonds", web_app: { url: APP_URL } }] // ক্লেইম বাটন
+                        ]
+                    }
+                });
             } catch (refErr) {
                 console.log("Could not send referrer msg:", refErr.message);
             }
@@ -136,7 +143,6 @@ app.post('/api/notify-users', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-// ❌ OLD APIs REMOVED (claim-reward & withdraw) - Frontend handles them now.
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
