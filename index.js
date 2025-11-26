@@ -162,6 +162,54 @@ app.post('/api/notify-users', async (req, res) => {
     }
 });
 
+
+// ==========================================
+// 💎 ADSGRAM REWARD API (S2S Postback)
+// ==========================================
+
+app.get('/api/adsgram-reward', async (req, res) => {
+    try {
+        // ১. URL থেকে প্যারামিটার ধরা
+        // Adsgram {userid} এর জায়গায় আসল টেলিগ্রাম আইডি বসিয়ে পাঠাবে
+        const userId = req.query.userid; 
+        const secret = req.query.secret;
+
+        console.log(`Adsgram Postback received for: ${userId}`);
+
+        // ২. সিকিউরিটি চেক (যাতে হ্যাকাররা লিংক হিট করতে না পারে)
+        // লিংকের পাসওয়ার্ড আর এখানের পাসওয়ার্ড মিলতে হবে
+        if (secret !== "pocket123") {
+            return res.status(403).send("Error: Wrong Secret Key");
+        }
+
+        if (!userId) {
+            return res.status(400).send("Error: Missing User ID");
+        }
+
+        // ৩. ইউজারের ডাটাবেসে ডায়মন্ড যোগ করা
+        const userRef = db.collection('users').doc(userId);
+        const userSnap = await userRef.get();
+
+        if (!userSnap.exists) {
+            return res.status(404).send("User not found in database");
+        }
+
+        // 💎 ০.৫ ডায়মন্ড যোগ হচ্ছে
+        await userRef.update({
+            diamonds: admin.firestore.FieldValue.increment(0.5)
+        });
+
+        console.log(`✅ Added 0.5 Diamond to user ${userId}`);
+        
+        // Adsgram কে জানিয়ে দেওয়া যে কাজ হয়েছে
+        res.status(200).send("OK");
+
+    } catch (error) {
+        console.error("Adsgram API Error:", error);
+        res.status(500).send("Server Error");
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
