@@ -134,7 +134,7 @@ app.post('/api/notify-users', async (req, res) => {
                 };
 
                 await referrerRef.update({
-                    diamonds: admin.firestore.FieldValue.increment(2),
+                    diamonds: admin.firestore.FieldValue.increment(1), // 🔴 আগে 2 ছিল, এখন 1 করা হলো (আসল রিওয়ার্ড)
                     // arrayUnion দিয়ে পুরো অবজেক্ট পুশ করছি
                     referrals: admin.firestore.FieldValue.arrayUnion(referralData)
                 });
