@@ -210,6 +210,34 @@ app.get('/api/adsgram-reward', async (req, res) => {
     }
 });
 
+// ✅ API: CHECK BALANCE (HubCoin থেকে কল হবে)
+app.post('/api/check-balance', async (req, res) => {
+    const { userId } = req.body;
+
+    console.log(`Checking balance for user: ${userId}`); // লগে দেখার জন্য
+
+    try {
+        // ১. ডাটাবেস থেকে ইউজার চেক করা
+        const userRef = db.collection('users').doc(String(userId));
+        const userSnap = await userRef.get();
+
+        if (!userSnap.exists) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const data = userSnap.data();
+        // ২. ইউজারের BDT ব্যালেন্স নেওয়া
+        const balance = data.balanceBDT || 0;
+
+        // ৩. HubCoin কে ব্যালেন্স ফেরত পাঠানো
+        res.json({ success: true, balance: balance });
+
+    } catch (error) {
+        console.error("Balance Check Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
