@@ -5,10 +5,23 @@ const admin = require('firebase-admin');
 const { Telegraf, Markup } = require('telegraf');
 const TonWeb = require('tonweb');
 const { mnemonicToKeyPair } = require('tonweb-mnemonic');
-
-// TON সেটআপ
+ 
+// --- TON CONFIGURATION ---
+ 
+// ১. API Key চেক এবং ক্লিন করা
+const rawApiKey = process.env.TONCENTER_API_KEY;
+if (!rawApiKey) {
+    console.error("❌ CRITICAL ERROR: TONCENTER_API_KEY পাওয়া যায়নি! Render Environment চেক করুন।");
+}
+ 
+// স্পেস রিমুভ করা (যদি ভুলে স্পেস পড়ে থাকে)
+const apiKey = rawApiKey ? rawApiKey.trim() : "";
+ 
+console.log("✅ Using TON API Key:", apiKey.substring(0, 5) + "..."); // লগে চেক করার জন্য
+ 
+// ২. TonWeb ইনিশিলাইজ করা (Standard Object Method)
 const tonweb = new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/json', {
-    apiKey: process.env.TONCENTER_API_KEY
+    apiKey: apiKey
 }));
 
 const app = express();
@@ -276,7 +289,10 @@ app.post('/api/withdraw-ton', async (req, res) => {
                 const keyPair = await mnemonicToKeyPair(mnemonic);
                 const WalletClass = tonweb.wallet.all['v4R2'];
                 const wallet = new WalletClass(tonweb.provider, { publicKey: keyPair.publicKey });
-                const seqno = (await wallet.methods.seqno().call()) || 0;
+                let seqno = await wallet.methods.seqno().call();
+                if (seqno === null || seqno === undefined) {
+                    seqno = 0;
+                }
 
                 const transfer = wallet.methods.transfer({
                     secretKey: keyPair.secretKey,
