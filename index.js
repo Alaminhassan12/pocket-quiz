@@ -6,23 +6,21 @@ const { Telegraf, Markup } = require('telegraf');
 const TonWeb = require('tonweb');
 const { mnemonicToKeyPair } = require('tonweb-mnemonic');
  
-// --- TON CONFIGURATION ---
+// --- TON CONFIGURATION (UPDATED) ---
  
 // ১. API Key চেক এবং ক্লিন করা
 const rawApiKey = process.env.TONCENTER_API_KEY;
 if (!rawApiKey) {
     console.error("❌ CRITICAL ERROR: TONCENTER_API_KEY পাওয়া যায়নি! Render Environment চেক করুন।");
 }
- 
-// স্পেস রিমুভ করা (যদি ভুলে স্পেস পড়ে থাকে)
+  
+// স্পেস রিমুভ করা
 const apiKey = rawApiKey ? rawApiKey.trim() : "";
- 
-console.log("✅ Using TON API Key:", apiKey.substring(0, 5) + "..."); // লগে চেক করার জন্য
- 
-// ২. TonWeb ইনিশিলাইজ করা (Standard Object Method)
-const tonweb = new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/json', {
-    apiKey: apiKey
-}));
+  
+console.log("✅ Using TON API Key:", apiKey.substring(0, 5) + "..."); 
+  
+// ২. TonWeb ইনিশিলাইজ করা (Direct URL Method - এটিই সমাধান)
+const tonweb = new TonWeb(new TonWeb.HttpProvider(`https://toncenter.com/api/v2/json?api_key=${apiKey}`));
 
 const app = express();
 
